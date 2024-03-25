@@ -17,7 +17,11 @@ We have two separate apps:
 1. `emoteam`: Streamlit-powered dashboard for the user
 2. `emoteam-auth`: Flask app, serving as an "API gateway" for authentication, handling requests to spotify, and in the future handling our ML models
 
-These apps are deployed as **separate Azure app services**, please contact @Vemrthiss for anything related to deployment
+These apps are deployed as **separate Azure app services**, please contact @Vemrthiss for anything related to deployment.
+
+### Cold starts
+
+It seems that both app services have a cold start procedure to them, make sure they are running prior, before doing live demo.
 
 ## Setup for development
 

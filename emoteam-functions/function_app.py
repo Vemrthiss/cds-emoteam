@@ -38,13 +38,20 @@ def process_mp3(req: func.HttpRequest) -> func.HttpResponse:
     
 @app.route(route="predict")
 def predict(req: func.HttpRequest) -> func.HttpResponse:
-    # scoped to a single song id
+    # scoped to a single song id, and for a single spotify user
     logging.info('predict function processed a request.')
     # get spotify song id
     song_id = req.params.get('id')
+    user_id = req.params.get('userId')
     if not song_id:
         return func.HttpResponse(
             'Missing spotify song id query param',
+            status_code=400
+        )
+
+    if not user_id:
+        return func.HttpResponse(
+            'Missing spotify user id query param',
             status_code=400
         )
     
@@ -74,18 +81,27 @@ def predict(req: func.HttpRequest) -> func.HttpResponse:
     for blob in blobs:
         logging.info(f'container {container_name} and blob {blob.name}')
         # blob.name is the full file name including the file extension
+        name = blob.name.lower()
+        if name.startswith('arousal') or name.startswith('valence'):
+            # only download the user's EDA
+            # expected format: {valence/arousal}-{song id}-{user id}.txt
+            # example: valence-1-abcdefg.txt
+            blob_user_id = name.split('.')[0].split('-')[-1]
+            if blob_user_id != user_id:
+                logging.info('found EDA not belonging to user ID, skipping...')
+                continue
+
         blob_client = song_container.get_blob_client(blob=blob.name)
-        path = os.path.join(tempfile.gettempdir(), blob.name)
+        path = os.path.join(tempfile.gettempdir(), name)
         with open(file=path, mode="wb") as new_file:
             stream = blob_client.download_blob()
             new_file.write(stream.readall())
-        temp_files[blob.name] = path
+        temp_files[name] = path
 
     # load respective data
     valence_eda: torch.Tensor = None
     arousal_eda: torch.Tensor = None
-    for file_name, path in temp_files.items():
-        name = file_name.lower()
+    for name, path in temp_files.items():
         is_arousal_eda = name.startswith('arousal')
         is_valence_eda = name.startswith('valence')
         if name.startswith('spectrogram'):
@@ -122,12 +138,16 @@ def predict(req: func.HttpRequest) -> func.HttpResponse:
             elif is_valence_eda:
                 valence_eda = tensor
 
+    # make sure required data are not null
+    if spectrogram is None or music_vector is None or arousal_eda is None or valence_eda is None:
+        return func.HttpResponse('missing data, cannot run predictions unless all are present', status_code=400)
 
     # logging data shapes
     logging.info(f'spectrogram shape: {spectrogram.size()}')
     logging.info(f'music vector shape: {music_vector.size()}')
     logging.info(f'arousal_eda shape: {arousal_eda.size()}')
     logging.info(f'valence_eda shape: {valence_eda.size()}')
+    
     
     # try to load model and do preictions
     try:

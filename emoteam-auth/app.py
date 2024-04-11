@@ -3,6 +3,7 @@ from flask_cors import CORS
 import spotipy
 import os
 from dotenv import load_dotenv
+import requests
 
 
 app = Flask(__name__)
@@ -46,7 +47,6 @@ def verify():
                                            redirect_uri=redirect_uri,
                                            scope=scope)
     auth_url = sp_oauth.get_authorize_url()
-    print(auth_url)
     return redirect(auth_url)
 
 
@@ -77,11 +77,30 @@ def get_recent():
     sp = spotipy.Spotify(auth=token)
     data = request.get_json()
     try:
-        return jsonify(sp.current_user_recently_played(limit=data.get('limit', 20), after=data.get('after')))
+        recently_played = sp.current_user_recently_played(limit=data.get('limit', 20), after=data.get('after'))
+        get_recent_http(recently_played)
+        return jsonify(recently_played)
     except spotipy.SpotifyException as e:
         return jsonify({"error": str(e)}), 400
 
 
+
+def get_recent_http(recently_played):
+    print("recently played: ", recently_played)
+    payload = [{'preview_url': item['track']['preview_url'], 'track_id': item["track"]["id"]} for item in recently_played['items']]
+    print("payload: ", payload)
+    azure_function_url = "http://localhost:7071/process_mp3"
+    try:
+        response = requests.post(azure_function_url, json=payload)
+        print("HTTP response:", response.status_code)
+        print("Response text:", response.text)
+        return "Response received"
+    except Exception as e:
+        print("Error sending POST request:", str(e))
+        return "Error occurred"
+
+    
+    
 # def get_token(sess):
 #     token_valid = False
 #     token_info = sess.get("token_info", {})

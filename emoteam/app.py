@@ -66,3 +66,8 @@ if proc_req:
     tracks = list(map(get_preview_url, songs['items']))
     tracks = list(filter(lambda url: url is not None, tracks))
     st.write(tracks)
+
+    # # test parallelisation
+    # with st.spinner('Trying parallel'):
+    #     resp = requests.get(f'{api_url}/try-parallel').text
+    # st.write(resp)

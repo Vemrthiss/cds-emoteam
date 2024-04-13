@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-subjects = 1
-
 class SpectroEdaMusicNet(nn.Module):
     def __init__(self):
         super(SpectroEdaMusicNet, self).__init__()
@@ -25,7 +23,7 @@ class SpectroEdaMusicNet(nn.Module):
 
         # EDA CNN
         self.eda_cnn = nn.Sequential(
-            nn.Conv1d(subjects, 64, kernel_size=3, padding=1),
+            nn.Conv1d(1, 64, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.MaxPool1d(2),
             nn.Conv1d(64, 128, kernel_size=3, padding=1),
@@ -50,8 +48,8 @@ class SpectroEdaMusicNet(nn.Module):
         self.fusion = nn.Linear(fusion_input_size, 256)
 
         # Multi-Task Output layers
-        self.arousal_output = nn.Linear(256, subjects)
-        self.valence_output = nn.Linear(256, subjects)
+        self.arousal_output = nn.Linear(256, 1)
+        self.valence_output = nn.Linear(256, 1)
 
     def forward(self, spectrogram, eda_data, music_vector):
         # Initialize an empty tensor to store the fused features

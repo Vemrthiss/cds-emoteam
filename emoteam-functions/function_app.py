@@ -10,31 +10,84 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 import tempfile
+from dotenv import load_dotenv
+import requests
+from azure.core.exceptions import ResourceExistsError
+from azure.core.exceptions import ResourceNotFoundError
+
+# from emoteam import app
+
+load_dotenv()
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 model = SpectroEdaMusicNet()
 storage_connection_string = os.environ['STORAGE_CONNECTION_STRING']
 
-@app.route(route="process_mp3")
+@app.route(route="process_mp3", methods=['POST'])
 def process_mp3(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Python HTTP trigger function processed a request.')
 
-    name = req.params.get('name')
-    if not name:
-        try:
-            req_body = req.get_json()
-        except ValueError:
-            pass
-        else:
-            name = req_body.get('name')
+    try:
+        req_body = req.get_json()
+        if not req_body or not isinstance(req_body, list):
+            return func.HttpResponse(
+                "Request body is required and should be a list of dictionaries..",
+                status_code=400
+            )
 
-    if name:
-        return func.HttpResponse(f"Hello, {name}. This HTTP triggered function executed successfully.")
-    else:
-        return func.HttpResponse(
-             "This HTTP triggered function executed successfully. Pass a name in the query string or in the request body for a personalized response.",
-             status_code=200
-        )
+        for song in req_body:
+            print("song: ", song)
+            if not isinstance(song, dict):
+                logging.warning("Invalid song data found in the payload.")
+                continue
+            preview_url = song.get('preview_url')
+            print("preview_url: ", preview_url)
+            track_id = song.get('track_id').lower()
+            print("track_id: ", track_id)
+
+
+            # Download MP3 file from preview URL
+            # Make the GET request to fetch the MP3 data
+            response = requests.get(preview_url)
+
+            # Check if the request was successful (status code 200)
+            if response.status_code == 200:
+                mp3_data = response.content
+                print("MP3 data fetched successfully")
+            else:
+                print(f"Failed to fetch MP3 data. Status code: {response.status_code}")
+
+            # Create Azure BlobServiceClient using connection string
+            try:
+                blob_service_client = BlobServiceClient.from_connection_string(storage_connection_string)
+                print("Blob service client created successfully")
+            except Exception as e:
+                print("Error creating Blob service client:", str(e))
+
+            # Create container with track ID as name
+            container_name = f'spotify-{track_id}'
+            try:
+            # Create the container with the specified name
+                container_client = blob_service_client.create_container(container_name)
+                print(f"Container '{container_name}' created successfully")
+            except ResourceExistsError:
+                print(f"Container '{container_name}' already exists")
+            except Exception as e:
+                print(f"Error occurred while creating container '{container_name}': {e}")
+
+            # Upload MP3 file as blob
+            try:
+                # Upload the mp3 data as a blob with the specified name
+                blob_client = container_client.upload_blob(name=f'song-{track_id}.mp3', data=mp3_data)
+                print(f"Blob 'song-{track_id}.mp3' uploaded successfully")
+            except ResourceNotFoundError:
+                print("Container does not exist")
+            except Exception as e:
+                print(f"Error occurred while uploading blob: {e}")
+
+        return func.HttpResponse("MP3 files uploaded successfully", status_code=200)
+    except Exception as e:
+        return func.HttpResponse(f"Error: {str(e)}", status_code=500)
     
 @app.route(route="predict")
 def predict(req: func.HttpRequest) -> func.HttpResponse:
@@ -168,5 +221,3 @@ def predict(req: func.HttpRequest) -> func.HttpResponse:
 
     
     return func.HttpResponse('done', status_code=200)
-
-    

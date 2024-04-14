@@ -10,14 +10,14 @@ import numpy as np
 import pandas as pd
 from scipy.interpolate import interp1d
 import tempfile
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 import requests
 from azure.core.exceptions import ResourceExistsError
 from azure.core.exceptions import ResourceNotFoundError
+from mp3_to_spectrogram import generate_spectrogram
+import io
 
-# from emoteam import app
-
-load_dotenv()
+# load_dotenv()
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 model = SpectroEdaMusicNet()
@@ -45,6 +45,12 @@ def process_mp3(req: func.HttpRequest) -> func.HttpResponse:
             track_id = song.get('track_id').lower()
             print("track_id: ", track_id)
 
+            # Create Azure BlobServiceClient using connection string
+            try:
+                blob_service_client = BlobServiceClient.from_connection_string(storage_connection_string)
+                print("Blob service client created successfully")
+            except Exception as e:
+                print("Error creating Blob service client:", str(e))
 
             # Download MP3 file from preview URL
             # Make the GET request to fetch the MP3 data
@@ -57,35 +63,32 @@ def process_mp3(req: func.HttpRequest) -> func.HttpResponse:
             else:
                 print(f"Failed to fetch MP3 data. Status code: {response.status_code}")
 
-            # Create Azure BlobServiceClient using connection string
-            try:
-                blob_service_client = BlobServiceClient.from_connection_string(storage_connection_string)
-                print("Blob service client created successfully")
-            except Exception as e:
-                print("Error creating Blob service client:", str(e))
-
             # Create container with track ID as name
             container_name = f'spotify-{track_id}'
             try:
             # Create the container with the specified name
                 container_client = blob_service_client.create_container(container_name)
                 print(f"Container '{container_name}' created successfully")
-            except ResourceExistsError:
-                print(f"Container '{container_name}' already exists")
-            except Exception as e:
-                print(f"Error occurred while creating container '{container_name}': {e}")
-
-            # Upload MP3 file as blob
-            try:
                 # Upload the mp3 data as a blob with the specified name
                 blob_client = container_client.upload_blob(name=f'song-{track_id}.mp3', data=mp3_data)
                 print(f"Blob 'song-{track_id}.mp3' uploaded successfully")
-            except ResourceNotFoundError:
-                print("Container does not exist")
+            except ResourceExistsError:
+                print(f"Container '{container_name}' already exists")
+                container_client = blob_service_client.get_container_client(container_name)
             except Exception as e:
-                print(f"Error occurred while uploading blob: {e}")
+                print(f"Error occurred while creating container '{container_name}': {e}")
+      
+            # Generate spectrogram
+            with io.BytesIO(mp3_data) as mp3_buffer:
+                print("io bytes part")
+                generate_spectrogram(mp3_buffer, f"C:/Users/ankit/cds-emoteam/emoteam-functions/img/{track_id}.png")
+                print("executed generate spectrogram")
 
-        return func.HttpResponse("MP3 files uploaded successfully", status_code=200)
+                # Upload spectrogram to the same container
+                blob_client = container_client.upload_blob(name=f'spectrogram-{track_id}.png',
+                                                            data=open(f"C:/Users/ankit/cds-emoteam/emoteam-functions/img/{track_id}.png", "rb"))    
+
+        return func.HttpResponse("MP3 files and spectrograms uploaded successfully", status_code=200)
     except Exception as e:
         return func.HttpResponse(f"Error: {str(e)}", status_code=500)
     

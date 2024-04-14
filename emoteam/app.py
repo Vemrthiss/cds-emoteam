@@ -61,13 +61,9 @@ if proc_req:
     headers = {'Authorization': f'Bearer {access_token}'}
     timestamp = calendar.timegm(after_date.timetuple())  # seconds
     body = {'limit': limit, 'after': timestamp * 1000}
-    songs = requests.post(f'{api_url}/get-recent', headers=headers, json=body).json()
+    with st.spinner('Processing songs...'):
+        songs = requests.post(f'{api_url}/get-recent', headers=headers, json=body).json()
     st.write(songs)
     tracks = list(map(get_preview_url, songs['items']))
     tracks = list(filter(lambda url: url is not None, tracks))
     st.write(tracks)
-
-    # # test parallelisation
-    # with st.spinner('Trying parallel'):
-    #     resp = requests.get(f'{api_url}/try-parallel').text
-    # st.write(resp)

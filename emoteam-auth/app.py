@@ -4,9 +4,9 @@ from flask_cors import CORS
 import spotipy
 import os
 from dotenv import load_dotenv
-import requests
 import asyncio
 import aiohttp
+import json
 
 app = Flask(__name__)
 load_dotenv()
@@ -81,26 +81,93 @@ def get_recent():
     data = request.get_json()
     try:
         recently_played = sp.current_user_recently_played(limit=data.get('limit', 20), after=data.get('after'))
-        # TODO: warning that this is not awaited
-        get_recent_http(recently_played)
-        # parallelize here
-        payloads = [{'preview_url': item['track']['preview_url'], 'track_id': item["track"]["id"]} for item in
-                    recently_played['items']]
-        # TODO: filter those with None preview_url
-        print("payloads: ", payloads)
-        asyncio.run(get_recent_http(payloads))
-        return jsonify(recently_played)
+        payloads = []
+        unique_ids = set()  # remove duplicates
+        print('items length', len(recently_played['items']))
+        for item in recently_played['items']:
+            preview_url = item['track']['preview_url']
+            if preview_url is None:
+                continue
+            track_id = item["track"]["id"]
+            if track_id not in unique_ids:
+                unique_ids.add(track_id)
+                payloads.append({
+                    'preview_url': preview_url,
+                    'track_id': track_id,
+                    'track_name': item["track"]["name"]
+                })
+
+        result = asyncio.run(get_recent_http(payloads))
+        # print(result)
+        temp = []
+        for item in result:
+            try:
+                decoded = item.decode('utf-8')
+                temp.append(json.loads(decoded))
+            except Exception as e:
+                print(e)
+        # make sure to return the non-lowercased track ids to app
+        resp = list(
+            filter(lambda track: any(d['track_id'].lower() == track['track_id'].lower() for d in temp), payloads)
+        )
+        print('resp', len(resp))
+        return jsonify(resp)
     except spotipy.SpotifyException as e:
         return jsonify({"error": str(e)}), 400
 
 
+@app.route('/predict', methods=['POST'])
+def predict():
+    auth_header = request.headers.get('Authorization')
+    if auth_header:
+        token = auth_header.split(" ")[1]
+    else:
+        return jsonify({"error": "Authorization header is missing"}), 401
+
+    sp = spotipy.Spotify(auth=token)
+    data = request.get_json()
+    user = sp.current_user()
+    if user is None:
+        return jsonify({"error": "Could not obtain user info from spotify via token"}), 500
+    user_id = user["id"]
+    payloads = [{
+        'user_id': user_id,
+        'track_id': track_id
+    } for track_id in data]
+    result = asyncio.run(make_predictions(payloads))
+    print(result)
+    temp = []
+    for item in result:
+        try:
+            decoded = item.decode('utf-8')
+            temp.append(json.loads(decoded))
+        except Exception as e:
+            print(e)
+    resp = list(
+        filter(lambda pred: any(d['track_id'].lower() == pred['track_id'].lower() for d in payloads), temp)
+    )
+    return jsonify(resp)
+
+
+timeout_config = aiohttp.ClientTimeout(
+    total=None
+)
+client_config = dict(trust_env=True, timeout=timeout_config)
+
+
 async def get_recent_http(payloads):
-    async with aiohttp.ClientSession() as sess:
-        res = await asyncio.gather(*(process_mp3_parallel(f'{functions_url}/process_mp3', sess, payload) for payload in payloads))
-    print(res)
+    async with aiohttp.ClientSession(**client_config) as sess:
+        return await asyncio.gather(
+            *(do_post_parallel(f'{functions_url}/process_mp3', sess, payload) for payload in payloads))
 
 
-async def process_mp3_parallel(url, sess: ClientSession, payload):
+async def make_predictions(payloads):
+    async with aiohttp.ClientSession(**client_config) as sess:
+        return await asyncio.gather(
+            *(do_post_parallel(f'{functions_url}/predict', sess, payload) for payload in payloads))
+
+
+async def do_post_parallel(url, sess: ClientSession, payload):
     try:
         async with sess.post(url=url, json=payload) as response:
             return await response.read()

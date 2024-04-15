@@ -68,3 +68,23 @@ $ source .venv/bin/activate
 $ pip install -r requirements.txt
 $ streamlit run app.py
 ```
+
+## Deployment
+
+### emoteam-functions
+
+Make sure you have the following:
+
+- Docker installed on your machine
+- Azure CLI and logged in to Azure
+
+```console
+$ cd emoteam-functions
+$ az login acr --name emoteam
+$ docker build -t emoteam.azurecr.io/emoteam-functions .
+$ docker push emoteam.azurecr.io/emoteam-functions
+```
+
+The azure functions project is setup for continuous deployment whenever a new image is pushed to the Azure Container Registry `emoteam`, under the repository `emoteam-functions`
+
+> This is why we are pushing to `emoteam.azurecr.io/emoteam-functions`

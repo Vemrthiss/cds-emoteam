@@ -1,6 +1,5 @@
 import librosa.display
 import numpy as np
-import imageio
 import matplotlib.pyplot as plt
 
 def make_spectrogram(mp3_path: str, output_path: str):

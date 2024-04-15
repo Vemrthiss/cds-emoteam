@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import logging
 
 class SpectroEdaMusicNet(nn.Module):
     def __init__(self):
@@ -58,10 +59,14 @@ class SpectroEdaMusicNet(nn.Module):
         # Spectrogram feature extraction
         spec_features = self.spec_cnn(spectrogram)
         fused_features.append(spec_features)
+        spec_features_size = str(spec_features.size())
+        logging.info('spec_features_size %s' % spec_features_size)
 
         # EDA feature extraction
         eda_features = self.eda_cnn(eda_data)
         fused_features.append(eda_features)
+        eda_features_size = str(eda_features.size())
+        logging.info('eda_features_size %s' % eda_features_size)
 
         music_features = music_vector.unsqueeze(1)
         lstm_out, _ = self.music_lstm(music_features)
@@ -69,6 +74,9 @@ class SpectroEdaMusicNet(nn.Module):
         music_features = F.relu(self.music_fc1(music_features))
         music_features = F.relu(self.music_fc2(music_features))
         fused_features.append(music_features)
+
+        music_features_size = str(music_features.size())
+        logging.info('music_features_size %s' % music_features_size)
 
         # Fusion of spectrogram and EDA features
         fused_features = torch.cat(tuple(fused_features), dim=1)

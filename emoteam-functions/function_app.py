@@ -88,12 +88,12 @@ def process_mp3(req: func.HttpRequest) -> func.HttpResponse:
             logging.info("Blob '%s' uploaded successfully" % mp3_file_name)
             upload_status['mp3'] = True
         except ResourceNotFoundError as e:
-            logging.error("Container does not exist " + e)
+            logging.error("Container does not exist %s" % e)
         except ResourceExistsError:
             logging.info("mp3 resource already exists for track %s" % track_id)
             upload_status['mp3'] = True
         except Exception as e:
-            logging.warning("Error occurred while uploading mp3 blob: " + e)
+            logging.warning("Error occurred while uploading mp3 blob: %s" % e)
 
         # create temp mp3 file
         mp3_path = os.path.join(tempfile.gettempdir(), mp3_file_name)
@@ -116,7 +116,7 @@ def process_mp3(req: func.HttpRequest) -> func.HttpResponse:
             logging.info("wav resource already exists for track %s" % track_id)
             upload_status['wav'] = True
         except Exception as e:
-            logging.warning('Error occurred while uploading wav blob: ' + e)
+            logging.warning('Error occurred while uploading wav blob: %s' % e)
 
         # 3) music features
         try:
@@ -132,7 +132,7 @@ def process_mp3(req: func.HttpRequest) -> func.HttpResponse:
             logging.info("features resource already exists for track %s" % track_id)
             upload_status['features'] = True
         except Exception as e:
-            logging.warning('Error occurred while uploading features csv: ' + e)
+            logging.warning('Error occurred while uploading features csv: %s' % e)
 
         # 4) spectrogram
         try:
@@ -149,7 +149,7 @@ def process_mp3(req: func.HttpRequest) -> func.HttpResponse:
             logging.info("spectrogram resource already exists for track %s" % track_id)
             upload_status['spectrogram'] = True
         except Exception as e:
-            logging.warning("Error occurred while uploading spectrogram blob: " + e)
+            logging.warning("Error occurred while uploading spectrogram blob: %s" % e)
         
 
         return func.HttpResponse(json.dumps(upload_status), status_code=200)
@@ -162,29 +162,33 @@ def process_mp3(req: func.HttpRequest) -> func.HttpResponse:
                 os.remove(tempfile_path)
 
  
-@app.route(route="predict")
+@app.route(route="predict", methods=['POST'])
 def predict(req: func.HttpRequest) -> func.HttpResponse:
     # scoped to a single song id, and for a single spotify user
     logging.info('predict function processed a request.')
+    req_body = req.get_json()
+    if not req_body:
+        return func.HttpResponse("Request body is required", status_code=400)
     # get spotify song/track id
-    track_id = req.params.get('id').lower()
-    user_id = req.params.get('userId')
+    TRACK_ID = req_body.get('track_id')
+    track_id = TRACK_ID.lower()
+    user_id = req_body.get('user_id')
     if not track_id:
         return func.HttpResponse(
-            'Missing spotify track id query param',
+            'Missing spotify track id param',
             status_code=400
         )
 
     if not user_id:
         return func.HttpResponse(
-            'Missing spotify user id query param',
+            'Missing spotify user id param',
             status_code=400
         )
     
     try:
         blob_service_client = BlobServiceClient.from_connection_string(storage_connection_string)
     except Exception as e:
-        logging.error('could not connect to blob storage with connection string', e)
+        logging.error('could not connect to blob storage with connection string %s' % e)
         return func.HttpResponse('cannot connect to blob storage', status_code=500)
 
     # we need spectrogram, eda and music vector, get those from blob storage
@@ -192,11 +196,11 @@ def predict(req: func.HttpRequest) -> func.HttpResponse:
         container_name = f'spotify-{track_id}'
         song_container = blob_service_client.get_container_client(container=container_name)
     except Exception as e:
-        logging.error('could not get container for song %s' % track_id, e)
+        logging.error('could not get container for song %s with error %s' % (track_id, e))
         return func.HttpResponse('Song container not found in blob storage', status_code=404)
 
     if not song_container.exists:
-        func.HttpResponse(
+        return func.HttpResponse(
             'Container for song id {track_id} does not exist',
             status_code=400
         )
@@ -208,14 +212,15 @@ def predict(req: func.HttpRequest) -> func.HttpResponse:
         logging.info('container %s and blob %s' % (container_name, blob.name))
         # blob.name is the full file name including the file extension
         name = blob.name.lower()
-        if name.startswith('arousal') or name.startswith('valence'):
-            # only download the user's EDA
-            # expected format: {valence/arousal}-{song id}-{user id}.txt
-            # example: valence-1-abcdefg.txt
-            blob_user_id = name.split('.')[0].split('-')[-1]
-            if blob_user_id != user_id:
-                logging.info('found EDA not belonging to user ID, skipping...')
-                continue
+        # TODO: uncomment this part until we support user-level eda
+        # if name.startswith('arousal') or name.startswith('valence'):
+        #     # only download the user's EDA
+        #     # expected format: {valence/arousal}-{song id}-{user id}.txt
+        #     # example: valence-1-abcdefg.txt
+        #     blob_user_id = name.split('.')[0].split('-')[-1]
+        #     if blob_user_id != user_id:
+        #         logging.info('found EDA not belonging to user ID, skipping...')
+        #         continue
 
         blob_client = song_container.get_blob_client(blob=blob.name)
         path = os.path.join(tempfile.gettempdir(), name)
@@ -224,12 +229,26 @@ def predict(req: func.HttpRequest) -> func.HttpResponse:
             new_file.write(stream.readall())
         temp_files[name] = path
 
+    # get sample EDAs
+    eda_container = blob_service_client.get_container_client(container='eda-data')
+    if not eda_container.exists:
+        return func.HttpResponse('eda container does not exist', status_code=500)
+    blobs = eda_container.list_blobs()
+    for blob in blobs:
+        logging.info('getting eda with blob %s' % blob.name)
+        # blob.name is the full file name including the file extension
+        name = blob.name.lower()
+        blob_client = eda_container.get_blob_client(blob=blob.name)
+        path = os.path.join(tempfile.gettempdir(), name)
+        with open(file=path, mode="wb") as new_file:
+            stream = blob_client.download_blob()
+            new_file.write(stream.readall())
+        temp_files[name] = path
+
+
     # load respective data
-    valence_eda: torch.Tensor = None
-    arousal_eda: torch.Tensor = None
+    eda_tensor: torch.Tensor = None
     for name, path in temp_files.items():
-        is_arousal_eda = name.startswith('arousal')
-        is_valence_eda = name.startswith('valence')
         if name.startswith('spectrogram'):
             # spectrogram
             spectrogram = Image.open(path)
@@ -240,8 +259,9 @@ def predict(req: func.HttpRequest) -> func.HttpResponse:
             # opensmile features
             music_df = pd.read_csv(path)
             music_features = music_df.iloc[0]
-            music_vector = torch.tensor(np.array(music_features))
-        elif is_valence_eda or is_arousal_eda:
+            music_vector = torch.tensor(np.array(music_features), dtype=torch.float32)
+        elif name.startswith('arousal'):
+            # blob is arousal.txt in azure storage, default to arousal which is in line with our training methods
             with open(path, "r") as f:
                 eda_signal = np.array(json.loads(f.read()))
             if len(eda_signal) != 896:
@@ -252,21 +272,23 @@ def predict(req: func.HttpRequest) -> func.HttpResponse:
             else:
                 interpolated_signal = eda_signal
 
-            tensor = torch.tensor(interpolated_signal, dtype=torch.float32)
-            if is_arousal_eda:
-                arousal_eda = tensor
-            elif is_valence_eda:
-                valence_eda = tensor
+            eda_tensor = torch.tensor(interpolated_signal, dtype=torch.float32)
 
     # make sure required data are not null
-    if spectrogram is None or music_vector is None or arousal_eda is None or valence_eda is None:
+    if spectrogram is None or music_vector is None or eda_tensor is None:
         return func.HttpResponse('missing data, cannot run predictions unless all are present', status_code=400)
 
+    spectrogram = spectrogram.unsqueeze(0) # add batch dimension
+    eda_tensor = eda_tensor.unsqueeze(0).unsqueeze(0) # add batch dimension and 2nd dimension "1", becomes 1,1,896
+    #TODO: does LSTM make sense for STATIC features?
+    music_vector = music_vector.unsqueeze(0) # add batch dimension
     # logging data shapes
-    logging.info('spectrogram shape: %s' % spectrogram.size())
-    logging.info('music vector shape: %s' % music_vector.size())
-    logging.info('arousal_eda shape: %s' % arousal_eda.size())
-    logging.info('valence_eda shape: %s' % valence_eda.size())
+    spectrogram_shape = str(spectrogram.size())
+    music_vector_shape = str(music_vector.size())
+    eda_shape = str(eda_tensor.size())
+    logging.info('spectrogram shape: %s' % spectrogram_shape)
+    logging.info('music vector shape: %s' % music_vector_shape)
+    logging.info('eda shape: %s' % eda_shape)
     
     # try to load model and do predictions
     try:
@@ -275,15 +297,20 @@ def predict(req: func.HttpRequest) -> func.HttpResponse:
         model.load_state_dict(torch.load('best_model.pt', map_location='cpu'))
         model.eval()
 
-        # TODO: predict and return predicted values
+        # predict
+        pred_arousal, pred_valence = model(spectrogram, eda_tensor, music_vector)
+        pred_arousal = pred_arousal.item()
+        pred_valence = pred_valence.item()
+        return func.HttpResponse(json.dumps({
+            'track_id': TRACK_ID,
+            'arousal': pred_arousal,
+            'valence': pred_valence
+        }), status_code=200)
     except Exception as e:
-        logging.error('torch could not load state dict', e)
+        logging.error('ran into problems during prediction %s' % e)
         return func.HttpResponse('cannot load model', status_code=500)
     finally:
         # remove temp files no matter what
         for path in temp_files.values():
             if os.path.exists(path):
                 os.remove(path)
-
-    
-    return func.HttpResponse('done', status_code=200)

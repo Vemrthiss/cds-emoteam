@@ -51,6 +51,9 @@ def get_preview_url(item):
 
 
 access_token = check_login()
+# user = requests.get(f'{api_url}/get-user', headers={'Authorization': f'Bearer {access_token}'}).json()
+# user_name = user['display_name']
+# st.header(f'Welcome, {user_name}')
 limit = st.slider("Maximum number of songs:", 1, 50, 20, 1)
 today = datetime.datetime.now()
 after_date = st.date_input(
@@ -97,17 +100,17 @@ if proc_req:
                      range_x=[-1, 1], range_y=[-1, 1],
                      hover_data=['track_id', 'track_name'],
                      labels={
-                         "valence": "Valence (-1 to 1)",
-                         "arousal": "Arousal (-1 to 1)"
+                         "valence": "Valence (0 to 1)",
+                         "arousal": "Arousal (0 to 1)"
                      })
     fig.update_layout(
         shapes=[
             # Line Vertical
             {
                 'type': 'line',
-                'x0': 0,
-                'y0': -1,
-                'x1': 0,
+                'x0': 0.5,
+                'y0': 0,
+                'x1': 0.5,
                 'y1': 1,
                 'line': {
                     'color': 'Black',
@@ -118,10 +121,10 @@ if proc_req:
             # Line Horizontal
             {
                 'type': 'line',
-                'x0': -1,
-                'y0': 0,
+                'x0': 0,
+                'y0': 0.5,
                 'x1': 1,
-                'y1': 0,
+                'y1': 0.5,
                 'line': {
                     'color': 'Black',
                     'width': 2,
@@ -129,8 +132,8 @@ if proc_req:
                 },
             }
         ],
-        xaxis=dict(range=[-1, 1], zeroline=False),
-        yaxis=dict(range=[-1, 1], zeroline=False)
+        xaxis=dict(range=[0, 1], zeroline=False),
+        yaxis=dict(range=[0, 1], zeroline=False)
     )
     fig.update_traces(marker=dict(size=10))
     st.plotly_chart(fig)

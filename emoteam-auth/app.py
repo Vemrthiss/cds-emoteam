@@ -59,14 +59,26 @@ def callback():
                                            client_secret=spotify_client_secret,
                                            redirect_uri=redirect_uri,
                                            scope=scope)
-    session.clear()
+    # session.clear()
     code = request.args.get('code')
     token_info = sp_oauth.get_access_token(code)
 
     # Saving the access token along with all other token related info
-    session["token_info"] = token_info
+    # session["token_info"] = token_info
 
     return redirect(f'{app_url}?code={token_info["access_token"]}')
+
+@app.route('/get-user')
+def get_user():
+    auth_header = request.headers.get('Authorization')
+    if auth_header:
+        token = auth_header.split(" ")[1]
+    else:
+        return jsonify({"error": "Authorization header is missing"}), 401
+
+    sp = spotipy.Spotify(auth=token)
+    user = sp.current_user()
+    return jsonify(user)
 
 
 @app.route('/get-recent', methods=['POST'])
@@ -203,7 +215,7 @@ async def do_post_parallel(url, sess: ClientSession, payload):
 # TODO: make sure the correct app.run is used
 if __name__ == '__main__':
     # DEV
-    app.run(host='0.0.0.0', port=3000)
+    # app.run(host='0.0.0.0', port=3000)
 
     # PROD
-    # app.run()
+    app.run()

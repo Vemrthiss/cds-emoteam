@@ -14,16 +14,17 @@ This repository is for the **application part** of our project. The repository t
 
 ## Architecture
 
-We have two separate apps:
+We have three separate apps:
 
 1. `emoteam`: Streamlit-powered dashboard for the user
 2. `emoteam-auth`: Flask app, serving as an "API gateway" for authentication, handling requests to spotify, and in the future handling our ML models
+3. `emoteam-functions`: Azure functions app, containing two functions to preprocess data and run predictions separately. It is deployed as a [containerized](https://learn.microsoft.com/en-us/azure/azure-functions/functions-deploy-container?tabs=acr,bash,azure-cli&pivots=programming-language-python#configure-your-local-environment) function app.
 
-These apps are deployed as **separate Azure app services**, please contact @Vemrthiss for anything related to deployment.
+The first two apps are deployed as **separate Azure app services**.
 
 ### Cold starts
 
-It seems that both app services have a cold start procedure to them, make sure they are running prior, before doing live demo.
+Do note that both app services have a cold start procedure to them.
 
 ## Setup for development
 

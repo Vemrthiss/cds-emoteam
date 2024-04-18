@@ -10,6 +10,8 @@ Team members:
 
 Final group project code repository for **50.038 Computational Data Science Spring 2024**
 
+This repository is for the **application part** of our project. The repository that contains code pertaining to model training is found [here](https://github.com/jolow99/multi_modal_cnn)
+
 ## Architecture
 
 We have two separate apps:
